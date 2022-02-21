@@ -4,9 +4,9 @@
 
 #### Usage: start the frontend client by following the procedure below
 
-`clone repository`
-`cd client`
-`npm update --save`
-`npm audit fix --legacy-peer-deps`
-`npm install --save-dev`
+`clone repository` <br>
+`cd client` <br>
+`npm update --save` <br>
+`npm audit fix --legacy-peer-deps` <br>
+`npm install --save-dev` <br>
 `npm run start`
