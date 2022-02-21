@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-04/schema#",
+  "title": "group",
+  "type": "object",
+  "properties": {
+    "bookName": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9]*",
+      "minLength": 2,
+      "maxLength": 30
+    },
+    "author": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9]*",
+      "minLength": 2,
+      "maxLength": 30
+    },
+    "currentPageNumber": {
+      "type": "number"
+    },
+    "done": {
+      "type": "boolean"
+    },
+    "bookCoverUrl": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "bookName"
+  ],
+  "additionalProperties": true
+}

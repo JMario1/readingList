@@ -1,0 +1,250 @@
+service: serverless-readingList
+org: jmario
+
+plugins:
+  - serverless-iam-roles-per-function
+  - serverless-plugin-tracing
+  - serverless-reqvalidator-plugin
+
+
+
+
+frameworkVersion: '3'
+
+provider:
+  name: aws
+  runtime: dotnetcore3.1
+
+  stage: ${opt:stage, 'dev'}
+  region: ${opt:region, 'us-east-1'}
+
+  tracing:
+    lambda: true
+    apiGateway: true
+
+  environment:
+    BOOKS_TABLE: Books-${self:provider.stage}
+    IMAGE_BUCKET: serverless-readinglist-images-${self:provider.stage}
+
+  logs:
+    restApi: true
+
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - xray:PutTelemetryRecords
+            - xray:PutTraceSegments
+          Resource: "*"
+
+
+package:
+  individually: true
+  artifact: bin/Release/netcoreapp3.1/handlers.zip
+
+functions:
+
+  Auth:
+    handler:  CsharpHandlers::ServerlessFunctions.Auth0::HandlerAsync
+
+  CreateList:
+    handler: CsharpHandlers::ServerlessFunctions.CreateReadingList::Handler
+    events:
+      - http:
+          path: readingList
+          method: post
+          cors: true
+          authorizer: Auth
+          reqValidatorName: RequestBodyValidator
+          request:
+            schemas:
+              application/json: ${file(models/create-model-validator.json)}
+    iamRoleStatementsInherit: true
+    iamRoleStatements:
+      - Effect: Allow
+        Action:
+          - dynamodb:DescribeTable
+          - dynamodb:PutItem
+        Resource: !Join 
+          - ''
+          - - !GetAtt  BooksTable.Arn
+            - '*'
+
+
+  UpdateList:
+    handler: CsharpHandlers::ServerlessFunctions.UpdateReadingList::Handler
+    events:
+      - http:
+          path: readingList/{bookId}
+          method: patch
+          cors: true        
+          authorizer: Auth
+          reqValidatorName: RequestBodyValidator
+          request:
+            schemas:
+              application/json: ${file(models/update-model-validator.json)}
+    iamRoleStatementsInherit: true
+    iamRoleStatements:
+      - Effect: Allow
+        Action:
+          - dynamodb:UpdateItem
+          - dynamodb:DescribeTable
+        Resource: !Join 
+          - ''
+          - - !GetAtt  BooksTable.Arn
+            - '*'
+
+  GetList:
+    handler: CsharpHandlers::ServerlessFunctions.GetReadingList::Handler
+    events:
+      - http:
+          path: readingList
+          method: get
+          cors: true        
+          authorizer: Auth
+          reqValidatorName: RequestBodyValidator
+    iamRoleStatementsInherit: true
+    iamRoleStatements:
+      - Effect: Allow
+        Action:
+          - dynamodb:DescribeTable
+          - dynamodb:Query
+        Resource: !Join 
+          - ''
+          - - !GetAtt  BooksTable.Arn
+            - '*'
+
+  DeleteList:
+    handler: CsharpHandlers::ServerlessFunctions.DeleteReadingList::Handler
+    events:
+      - http:
+          path: readingList/{bookId}
+          method: delete
+          cors: true        
+          authorizer: Auth
+          reqValidatorName: RequestBodyValidator
+    iamRoleStatementsInherit: true
+    iamRoleStatements:
+      - Effect: Allow
+        Action:
+          - dynamodb:GetItem
+          - dynamodb:DeleteItem
+          - dynamodb:DescribeTable
+        Resource: !Join 
+          - ''
+          - - !GetAtt  BooksTable.Arn
+            - '*'
+
+  GenerateUrl:
+    handler: CsharpHandlers::ServerlessFunctions.GenerateUrl::Handler
+    events:
+      - http:
+          path: readingList/{bookId}/image
+          method: post
+          cors: true        
+          authorizer: Auth
+          reqValidatorName: RequestBodyValidator
+    iamRoleStatementsInherit: true
+    iamRoleStatements:
+      - Effect: Allow
+        Action:
+          - dynamodb:UpdateItem
+          - dynamodb:DescribeTable
+        Resource: !Join 
+          - ''
+          - - !GetAtt  BooksTable.Arn
+            - '*'
+      - Effect: Allow
+        Action: 
+         - s3:PutObject
+         - 's3:GetObject'
+        Resource:  !GetAtt  ImageBucket.Arn          
+
+resources:
+  Resources:
+    
+        
+    GatewayResponseDefault4XX:
+      Type: AWS::ApiGateway::GatewayResponse
+      Properties:
+        ResponseParameters:
+          gatewayresponse.header.Access-Control-Allow-Origin: "'*'"
+          gatewayresponse.header.Access-Control-Allow-Headers: "'*'"
+          gatewayresponse.header.Access-Control-Allow-Methods: "'GET,OPTIONS,POST'"
+        ResponseType: DEFAULT_4XX
+        RestApiId: !Ref ApiGatewayRestApi
+        StatusCode: '404'
+
+    RequestBodyValidator:
+      Type: AWS::ApiGateway::RequestValidator
+      Properties:
+        Name: 'request-body-validator'
+        RestApiId: !Ref ApiGatewayRestApi
+        ValidateRequestBody: true
+        ValidateRequestParameters: false
+        
+    
+
+    BooksTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        AttributeDefinitions:
+          - AttributeName: UserId
+            AttributeType: S
+          - AttributeName: BookId
+            AttributeType: S
+          - AttributeName: CreatedAt
+            AttributeType: S
+        KeySchema:
+          - AttributeName: UserId
+            KeyType: HASH
+          - AttributeName: BookId
+            KeyType: RANGE
+        BillingMode: PAY_PER_REQUEST
+        TableName: ${self:provider.environment.BOOKS_TABLE}
+        LocalSecondaryIndexes:
+          - IndexName: CreatedAt
+            KeySchema:
+              - AttributeName: UserId
+                KeyType: HASH
+              - AttributeName: CreatedAt
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+
+    
+    ImageBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${self:provider.environment.IMAGE_BUCKET}
+        CorsConfiguration:
+          CorsRules:
+            - AllowedMethods:
+                - GET
+                - PUT
+                - POST
+                - DELETE
+                - HEAD
+              AllowedOrigins:
+                - '*'
+              AllowedHeaders:
+                - '*'
+              MaxAge: 3000
+
+    
+    BucketPolicy:
+      Type: AWS::S3::BucketPolicy
+      Properties:
+        Bucket: !Ref ImageBucket
+        PolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Action:
+                - s3:*
+              Effect: Allow
+              Resource: !Join
+                - ''
+                - - !GetAtt  ImageBucket.Arn
+                  - /*
+              Principal: '*'
